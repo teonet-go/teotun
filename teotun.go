@@ -99,7 +99,7 @@ func (t *Teotun) ifcCreate(name string) (ifce *water.Interface, err error) {
 			// 	time.Sleep(10 * time.Millisecond)
 			// }
 			t.peers.forEach(func(address string) {
-				t.teo.Command(cmdData, frame).SendTo(address)
+				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
 			})
 		}
 	}()
