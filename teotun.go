@@ -133,7 +133,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 		// Check received events
 		switch {
-			
+
 		// Check peer disconnect and reconnect in client mode
 		case e.Event == teonet.EventDisconnected:
 			t.log.Connect.Printf("peer %s disconnected from tunnel", c.Address())
@@ -165,9 +165,9 @@ func (t *Teotun) teoConnect(address string) (err error) {
 		// Get data command
 		case cmdData:
 			// Check connected
-			ok := t.peers.get(address)
+			_, ok := t.peers.get(c.Address())
 			if !ok {
-				t.log.Debug.Printf("receve data packet from unknown peer %s\n",
+				t.log.Error.Printf("receve data packet from unknown peer %s\n",
 					c.Address())
 				break
 			}
@@ -239,10 +239,10 @@ func (p *peers) del(address string) {
 }
 
 // get peer
-func (p *peers) get(address string) (ok bool) {
+func (p *peers) get(address string) (v interface{}, ok bool) {
 	p.RLock()
 	defer p.RUnlock()
-	_, ok = p.m[address]
+	v, ok = p.m[address]
 	return
 }
 
