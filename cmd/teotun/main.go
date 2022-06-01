@@ -18,7 +18,7 @@ const (
 	appName    = "Teonet tunnel"
 	appShort   = "teotun"
 	appLong    = ""
-	appVersion = "0.0.1"
+	appVersion = teotun.Version
 )
 
 func main() {

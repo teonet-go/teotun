@@ -19,8 +19,10 @@ import (
 	"github.com/teonet-go/tru/teolog"
 )
 
+const Version = "0.0.2"
+
 const (
-	cmdConnect = 11 // connect / connect_answer command
+	cmdConnect = 11 // connect and connect_answer command
 	cmdData    = 12 // data command
 )
 
@@ -56,7 +58,6 @@ func New(teo *teonet.Teonet, iface, connectto string, postcon string) (t *Teotun
 	// connection
 	err = t.teoConnect(connectto)
 	if err != nil {
-		// err = errors.New("can't create interface, error: " + err.Error())
 		return
 	}
 
@@ -95,10 +96,8 @@ func (t *Teotun) ifcCreate(name string) (ifce *water.Interface, err error) {
 			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
 			t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
 
-			// TODO: Resend frame to all channels
-			// for t.tru == nil {
-			// 	time.Sleep(10 * time.Millisecond)
-			// }
+			// TODO: Now it resend frames to all connected tunnels peers. But it
+			// should send to peers depend of frame.Destination() field
 			t.peers.forEach(func(address string) {
 				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
 			})
@@ -122,19 +121,19 @@ func (t *Teotun) teoConnect(address string) (err error) {
 		// Check received events
 		switch {
 
-		// Check peer disconnect and reconnect in client mode
+		// Check peer disconnected event and remove it from peers in client mode
 		case e.Event == teonet.EventDisconnected:
-			t.log.Connect.Printf("peer %s disconnected from tunnel (event disconnected)", c.Address())
+			t.log.Connect.Printf("peer %s disconnected from tunnel (event disconnected)",
+				c.Address())
 			if clientMode && c.Address() == address {
 				t.peers.del(address)
-				// t.teo.CloseTo(address)
-				// go t.teoConnect(address)
 			}
 			return false
 
-		// Check peer connect event
+		// Check peer connected event
 		case e.Event == teonet.EventConnected:
-			t.log.Connect.Printf("peer %s connected to tunnel (event connected)", c.Address())
+			t.log.Connect.Printf("peer %s connected to tunnel (event connected)",
+				c.Address())
 			// Send connect command
 			if clientMode {
 				t.teo.Command(cmdConnect, nil).SendTo(address)
@@ -172,7 +171,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 			// Show log
 			var frame ethernet.Frame = cmd.Data
-			t.log.Debug.Printf("Got from net address %s:\n", c.Address())
+			t.log.Debug.Printf("Got from teonet address %s:\n", c.Address())
 			t.log.Debug.Printf("Dst: %s\n", frame.Destination())
 			t.log.Debug.Printf("Src: %s\n", frame.Source())
 			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
@@ -196,9 +195,6 @@ func (t *Teotun) teoConnect(address string) (err error) {
 			t.log.Error.Printf("can't connect to %s, try again...", address)
 			time.Sleep(1 * time.Second)
 		}
-
-		// Send connect command
-		// t.teo.Command(cmdConnect, nil).SendTo(address)
 	}
 
 	return
