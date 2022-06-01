@@ -116,19 +116,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 	var clientMode = len(address) > 0
 
-	// Connect to remote peer and send connect command
-	if clientMode {
-		// Connect to remote peer
-		for t.teo.ConnectTo(address) != nil {
-			t.log.Error.Printf("can't connect to %s, try again...", address)
-			time.Sleep(1 * time.Second)
-		}
-
-		// Send connect command
-		// t.teo.Command(cmdConnect, nil).SendTo(address)
-	}
-
-	// Set reader to process teonet commands
+	// Set reader to process teonet events and commands
 	t.teo.AddReader(func(c *teonet.Channel, p *teonet.Packet, e *teonet.Event) bool {
 
 		// Check received events
@@ -200,6 +188,18 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 		return false
 	})
+
+	// Connect to remote peer and send connect command
+	if clientMode {
+		// Connect to remote peer
+		for t.teo.ConnectTo(address) != nil {
+			t.log.Error.Printf("can't connect to %s, try again...", address)
+			time.Sleep(1 * time.Second)
+		}
+
+		// Send connect command
+		// t.teo.Command(cmdConnect, nil).SendTo(address)
+	}
 
 	return
 }
