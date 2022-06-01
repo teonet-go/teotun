@@ -139,6 +139,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 			t.log.Connect.Printf("peer %s disconnected from tunnel", c.Address())
 			if clientMode && c.Address() == address {
 				t.peers.del(address)
+				t.teo.CloseTo(address)
 				go t.teoConnect(address)
 			}
 			return false
