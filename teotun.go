@@ -89,10 +89,11 @@ func (t *Teotun) ifcCreate(name string) (ifce *water.Interface, err error) {
 				t.log.Error.Fatal(err)
 			}
 			frame = frame[:n]
+			t.log.Debug.Println("Got from interface:")
 			t.log.Debug.Printf("Dst: %s\n", frame.Destination())
 			t.log.Debug.Printf("Src: %s\n", frame.Source())
 			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
-			t.log.Debug.Printf("Payload: % x\n", frame.Payload())
+			t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
 
 			// TODO: Resend frame to all channels
 			// for t.tru == nil {
@@ -130,8 +131,20 @@ func (t *Teotun) teoConnect(address string) (err error) {
 	// Set reader to process teonet commands
 	t.teo.AddReader(func(c *teonet.Channel, p *teonet.Packet, e *teonet.Event) bool {
 
+		// Check received events
+		switch {
+			
+		// Check peer disconnect and reconnect in client mode
+		case e.Event == teonet.EventDisconnected:
+			t.log.Connect.Printf("peer %s disconnected from tunnel", c.Address())
+			if clientMode && c.Address() == address {
+				t.peers.del(address)
+				go t.teoConnect(address)
+			}
+			return false
+
 		// Skip non data events
-		if e.Event != teonet.EventData {
+		case e.Event != teonet.EventData:
 			return false
 		}
 
@@ -151,9 +164,22 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 		// Get data command
 		case cmdData:
+			// Check connected
+			ok := t.peers.get(address)
+			if !ok {
+				t.log.Debug.Printf("receve data packet from unknown peer %s\n",
+					c.Address())
+				break
+			}
+
 			// Show log
-			t.log.Debug.Printf("got %d byte from %s, id %d: % x\n",
-				p.Len(), c.Address(), p.ID(), cmd.Data)
+			var frame ethernet.Frame = cmd.Data
+			t.log.Debug.Printf("Got from net address %s:\n", c.Address())
+			t.log.Debug.Printf("Dst: %s\n", frame.Destination())
+			t.log.Debug.Printf("Src: %s\n", frame.Source())
+			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
+			t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
+
 			// Send data to tunnel interface
 			// TODO: wait ifce ready
 			for t.ifce == nil {
