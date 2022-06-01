@@ -125,7 +125,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 		}
 
 		// Send connect command
-		t.teo.Command(cmdConnect, nil).SendTo(address)
+		// t.teo.Command(cmdConnect, nil).SendTo(address)
 	}
 
 	// Set reader to process teonet commands
@@ -144,9 +144,13 @@ func (t *Teotun) teoConnect(address string) (err error) {
 			}
 			return false
 
-		// Check peer connect event 
+		// Check peer connect event
 		case e.Event == teonet.EventConnected:
 			t.log.Connect.Printf("peer %s connected to tunnel (event)", c.Address())
+			// Send connect command
+			if clientMode {
+				t.teo.Command(cmdConnect, nil).SendTo(address)
+			}
 			return false
 
 		// Skip non data events
