@@ -28,13 +28,14 @@ func main() {
 	var connectto = flag.String("connectto", "", "peer address to connect")
 	var postcon = flag.String("postcon", "", "post connection shell command")
 	var loglevel = flag.String("loglevel", "none", "log level")
+	var hotkey = flag.Bool("hotkey", false, "start hotkey menu")
 	flag.Parse()
 
 	// Application logo
 	teonet.Logo(appName, appVersion)
 
 	// Create new Teonet client
-	teo, err := teonet.New(*name, *port, *loglevel)
+	teo, err := teonet.New(*name, *port, teonet.Hotkey(*hotkey), *loglevel)
 	if err != nil {
 		panic("can't create Teonet client")
 	}

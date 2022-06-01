@@ -124,7 +124,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 		// Check peer disconnect and reconnect in client mode
 		case e.Event == teonet.EventDisconnected:
-			t.log.Connect.Printf("peer %s disconnected from tunnel (event)", c.Address())
+			t.log.Connect.Printf("peer %s disconnected from tunnel (event disconnected)", c.Address())
 			if clientMode && c.Address() == address {
 				t.peers.del(address)
 				// t.teo.CloseTo(address)
@@ -134,7 +134,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 		// Check peer connect event
 		case e.Event == teonet.EventConnected:
-			t.log.Connect.Printf("peer %s connected to tunnel (event)", c.Address())
+			t.log.Connect.Printf("peer %s connected to tunnel (event connected)", c.Address())
 			// Send connect command
 			if clientMode {
 				t.teo.Command(cmdConnect, nil).SendTo(address)
@@ -154,7 +154,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 		case cmdConnect:
 			// Add peers address to connected peers
 			t.peers.add(c.Address())
-			t.log.Connect.Printf("peer %s connected to tunnel", c.Address())
+			t.log.Connect.Printf("got cmd connect from peer %s\n", c.Address())
 			// Send answer in server mode
 			if !clientMode {
 				cmd.Send(c)

@@ -1,5 +1,7 @@
 module github.com/teonet-go/teotun
 
+replace github.com/teonet-go/teonet => ../teonet
+
 go 1.18
 
 require (
