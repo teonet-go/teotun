@@ -136,12 +136,17 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 		// Check peer disconnect and reconnect in client mode
 		case e.Event == teonet.EventDisconnected:
-			t.log.Connect.Printf("peer %s disconnected from tunnel", c.Address())
+			t.log.Connect.Printf("peer %s disconnected from tunnel (event)", c.Address())
 			if clientMode && c.Address() == address {
 				t.peers.del(address)
-				t.teo.CloseTo(address)
-				go t.teoConnect(address)
+				// t.teo.CloseTo(address)
+				// go t.teoConnect(address)
 			}
+			return false
+
+		// Check peer connect event 
+		case e.Event == teonet.EventConnected:
+			t.log.Connect.Printf("peer %s connected to tunnel (event)", c.Address())
 			return false
 
 		// Skip non data events
