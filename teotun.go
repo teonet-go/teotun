@@ -209,6 +209,7 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 		if !ok {
 			t.log.Error.Printf("receve data packet from unknown peer %s\n",
 				addr)
+			t.teo.CloseTo(addr)
 			break
 		}
 
