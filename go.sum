@@ -8,8 +8,8 @@ github.com/songgao/packets v0.0.0-20160404182456-549a10cd4091 h1:1zN6ImoqhSJhN8h
 github.com/songgao/packets v0.0.0-20160404182456-549a10cd4091/go.mod h1:N20Z5Y8oye9a7HmytmZ+tr8Q2vlP0tAHP13kTHzwvQY=
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 h1:TG/diQgUe0pntT/2D9tmUCz4VNwm9MfrtPr0SU2qSX8=
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8/go.mod h1:P5HUIBuIWKbyjl083/loAegFkfbFNx5i2qEP4CNbm7E=
-github.com/teonet-go/teonet v0.5.23 h1:CWCt43XZdb3JA5YxxAquuSk07zKunUgi7odMdkSQfDA=
-github.com/teonet-go/teonet v0.5.23/go.mod h1:OQVuU/+ve3nTWYOhK8c7ceYRqf2pw98N2oHyLeyzFWw=
+github.com/teonet-go/teonet v0.5.24 h1:zTHPbhbLJa2h3n9pT+yO6+Ow6v3dpCtSxuJScKhmMzA=
+github.com/teonet-go/teonet v0.5.24/go.mod h1:OQVuU/+ve3nTWYOhK8c7ceYRqf2pw98N2oHyLeyzFWw=
 github.com/teonet-go/tru v0.0.8 h1:G7E9CdtNWo9IzipJvYqLeEoxjPmcfRLeuvsCY78aMYQ=
 github.com/teonet-go/tru v0.0.8/go.mod h1:0K2Nha9PqmdP0RaaLLB94gaRBOGgrj464rx8vmPDpH4=
 golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a h1:dGzPydgVsqGcTRVwiLJ1jVbufYwmzD3LfVPLKsKg+0k=
