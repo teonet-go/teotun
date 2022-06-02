@@ -39,7 +39,7 @@ type Teotun struct {
 //  iface - tunnels interface name
 //  connectto - remote peer teonet address to connet
 //  postcon - post connection shell command
-func New(teo *teonet.Teonet, iface, connectto string, postcon string) (t *Teotun, err error) {
+func New(teo *teonet.Teonet, iface, connectto, postcon string) (t *Teotun, err error) {
 
 	// Create
 	t = new(Teotun)
@@ -49,7 +49,7 @@ func New(teo *teonet.Teonet, iface, connectto string, postcon string) (t *Teotun
 	t.macs = t.newMacaddr()
 
 	// Create tap interface
-	t.ifce, err = t.ifcCreate(iface)
+	err = t.ifcCreate(iface)
 	if err != nil {
 		err = errors.New("can't create interface, error: " + err.Error())
 		return
@@ -59,6 +59,7 @@ func New(teo *teonet.Teonet, iface, connectto string, postcon string) (t *Teotun
 	// connection
 	err = t.teoConnect(connectto)
 	if err != nil {
+		err = errors.New("can't connect Teonet, error: " + err.Error())
 		return
 	}
 
@@ -68,51 +69,56 @@ func New(teo *teonet.Teonet, iface, connectto string, postcon string) (t *Teotun
 	return
 }
 
-// ifcCreate create tap interface
-func (t *Teotun) ifcCreate(name string) (ifce *water.Interface, err error) {
+// ifcCreate create tap interface and start procces it
+func (t *Teotun) ifcCreate(name string) (err error) {
+
+	// Configure interface
 	config := water.Config{
 		DeviceType: water.TAP,
 	}
 	config.Name = name
 
 	// Create interface
-	ifce, err = water.New(config)
+	ifce, err := water.New(config)
 	if err != nil {
 		return
 	}
+	t.ifce = ifce
 
-	// Read from interface and send to tru channels
-	go func() {
-		var frame ethernet.Frame
-		for {
-			frame.Resize(1500)
-			n, err := ifce.Read([]byte(frame))
-			if err != nil {
-				t.log.Error.Fatal(err)
-			}
-			frame = frame[:n]
-			dest := frame.Destination().String()
-			t.log.Debug.Println("Got from interface:")
-			t.log.Debug.Printf("Dst: %s\n", dest)
-			t.log.Debug.Printf("Src: %s\n", frame.Source())
-			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
-			t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
-
-			// Get peers address from saved mac address
-			if address, ok := t.macs.get(dest); ok {
-				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-				continue
-			}
-
-			// TODO: Now it resend frames to all connected tunnels peers. But it
-			// should send to peers depend of frame.Destination() field
-			t.peers.forEach(func(address string) {
-				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-			})
-		}
-	}()
+	// Read from interface and send to teonet peers
+	go t.ifcProcess()
 
 	return
+}
+
+// ifcProcess get frame from interface and send it to teonet peers
+func (t *Teotun) ifcProcess() {
+	var frame ethernet.Frame
+	for {
+		frame.Resize(1500)
+		n, err := t.ifce.Read([]byte(frame))
+		if err != nil {
+			t.log.Error.Fatal(err)
+		}
+		frame = frame[:n]
+		dest := frame.Destination().String()
+		t.log.Debug.Println("Got from interface:")
+		t.log.Debug.Printf("Dst: %s\n", dest)
+		t.log.Debug.Printf("Src: %s\n", frame.Source())
+		t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
+		t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
+
+		// Resend frame to tunnels peer by teonet address found by mac address
+		if address, ok := t.macs.get(dest); ok {
+			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+			continue
+		}
+
+		// Resend frame to all connected tunnels peers
+		t.peers.forEach(func(address string) {
+			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+		})
+	}
 }
 
 // teoConnect function connect to peer by address if connectto sets.
@@ -125,104 +131,7 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 	// Set reader to process teonet events and commands
 	t.teo.AddReader(func(c *teonet.Channel, p *teonet.Packet, e *teonet.Event) bool {
-
-		var addr = c.Address()
-
-		// Check received events
-		switch {
-
-		// Check peer disconnected event and remove it from peers in client mode
-		case e.Event == teonet.EventDisconnected:
-			t.log.Connect.Printf("peer %s disconnected from tunnel (event disconnected)",
-				addr)
-			if clientMode && addr == address {
-				t.peers.del(address)
-			}
-			t.macs.deladdr(addr)
-			return false
-
-		// Check peer connected event
-		case e.Event == teonet.EventConnected:
-			t.log.Connect.Printf("peer %s connected to tunnel (event connected)",
-				addr)
-			// Send connect command
-			if clientMode {
-				t.teo.Command(cmdConnect, nil).SendTo(address)
-			}
-			return false
-
-		// Skip non data events
-		case e.Event != teonet.EventData:
-			return false
-		}
-
-		// Parse incomming commands
-		cmd := t.teo.Command(p.Data())
-		switch cmd.Cmd {
-
-		// Connect command
-		case cmdConnect:
-			// Add peers address to connected peers
-			t.peers.add(addr)
-			t.log.Connect.Printf("got cmd connect from peer %s\n", addr)
-			// Send answer in server mode
-			if !clientMode {
-				cmd.Send(c)
-			}
-
-		// Get data command
-		case cmdData:
-			// Check connected
-			_, ok := t.peers.get(addr)
-			if !ok {
-				t.log.Error.Printf("receve data packet from unknown peer %s\n",
-					addr)
-				break
-			}
-
-			// Show log
-			var frame ethernet.Frame = cmd.Data
-			var src = frame.Source().String()
-			var dst = frame.Destination().String()
-			t.log.Debug.Printf("Got from teonet address %s:\n", addr)
-			t.log.Debug.Printf("Dst: %s\n", dst)
-			t.log.Debug.Printf("Src: %s\n", src)
-			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
-			t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
-
-			// Save source mac address
-			t.macs.add(src, addr)
-
-			// Check destination
-			switch {
-			// Brodcast request
-			case dst == "ff:ff:ff:ff:ff:ff":
-				// send to all connected peers except this
-				t.peers.forEach(func(address string) {
-					if address != addr {
-						t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-					}
-				})
-				// does not return or break here, because we need to send this
-				// frame to the interface too
-
-			// Check if request send to other peer then resend frame to peer
-			default:
-				if address, ok := t.macs.get(dst); ok {
-					t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-					return true
-				}
-			}
-
-			// Send data to tunnel interface
-			// TODO: wait ifce ready
-			for t.ifce == nil {
-				time.Sleep(10 * time.Millisecond)
-			}
-			t.ifce.Write([]byte(frame))
-		}
-
-		return true
+		return t.teoProcess(clientMode, address, c, p, e)
 	})
 
 	// Connect to remote peer and send connect command
@@ -235,6 +144,110 @@ func (t *Teotun) teoConnect(address string) (err error) {
 	}
 
 	return
+}
+
+// teoProcess get message from peer, resend it to other peers or send it to
+// interface
+func (t *Teotun) teoProcess(clientMode bool, address string,
+	c *teonet.Channel, p *teonet.Packet, e *teonet.Event) bool {
+
+	var addr = c.Address()
+
+	// Check received teonet event
+	switch {
+
+	// Check Peer Disconnected event and remove it from peers in client mode
+	case e.Event == teonet.EventDisconnected:
+		t.log.Connect.Printf("peer %s disconnected from tunnel (event disconnected)",
+			addr)
+		if clientMode && addr == address {
+			t.peers.del(address)
+		}
+		t.macs.deladdr(addr)
+		return false
+
+	// Check Peer Connected event
+	case e.Event == teonet.EventConnected:
+		t.log.Connect.Printf("peer %s connected to tunnel (event connected)",
+			addr)
+		// Send connect command
+		if clientMode {
+			t.teo.Command(cmdConnect, nil).SendTo(address)
+		}
+		return false
+
+	// Skip non data events
+	case e.Event != teonet.EventData:
+		return false
+	}
+
+	// Parse incomming commands
+	cmd := t.teo.Command(p.Data())
+	switch cmd.Cmd {
+
+	// Connect command
+	case cmdConnect:
+		// Add peers address to connected peers
+		t.peers.add(addr)
+		t.log.Connect.Printf("got cmd connect from peer %s\n", addr)
+		// Send answer in server mode
+		if !clientMode {
+			cmd.Send(c)
+		}
+
+	// Get data command
+	case cmdData:
+		// Check connected
+		_, ok := t.peers.get(addr)
+		if !ok {
+			t.log.Error.Printf("receve data packet from unknown peer %s\n",
+				addr)
+			break
+		}
+
+		// Show log
+		var frame ethernet.Frame = cmd.Data
+		var src = frame.Source().String()
+		var dst = frame.Destination().String()
+		t.log.Debug.Printf("Got from teonet address %s:\n", addr)
+		t.log.Debug.Printf("Dst: %s\n", dst)
+		t.log.Debug.Printf("Src: %s\n", src)
+		t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
+		t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
+
+		// Save source mac address
+		t.macs.add(src, addr)
+
+		// Check destination
+		switch {
+		// Brodcast request
+		case dst == "ff:ff:ff:ff:ff:ff":
+			// send to all connected peers except this
+			t.peers.forEach(func(address string) {
+				if address != addr {
+					t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+				}
+			})
+			// does not return or break here, because we need to send this
+			// frame to the interface too
+
+		// Check if request send to other peer then resend frame to peer
+		default:
+			if address, ok := t.macs.get(dst); ok {
+				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+				return true
+			}
+		}
+
+		// Send data to tunnel interface
+		// TODO: wait ifce ready
+		// for t.ifce == nil {
+		// 	time.Sleep(10 * time.Millisecond)
+		// }
+		t.ifce.Write([]byte(frame))
+	}
+
+	return true
 }
 
 // postConnect execute post connection shell command
