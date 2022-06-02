@@ -158,12 +158,19 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 
 	// Check Peer Disconnected event and remove it from peers in client mode
 	case e.Event == teonet.EventDisconnected:
-		t.log.Connect.Printf("peer %s disconnected from tunnel (event disconnected)",
-			addr)
-		if clientMode && addr == address {
-			t.peers.del(address)
+		if _, ok := t.peers.get(addr); !ok {
+			return false
 		}
+
+		t.log.Connect.Printf(
+			"peer %s disconnected from tunnel (event disconnected)",
+			addr,
+		)
+
+		// Remmove peer from peers and masc lists
+		t.peers.del(addr)
 		t.macs.deladdr(addr)
+
 		return false
 
 	// Check Peer Connected event
