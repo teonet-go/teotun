@@ -182,24 +182,47 @@ func (t *Teotun) teoConnect(address string) (err error) {
 
 			// Show log
 			var frame ethernet.Frame = cmd.Data
+			var src = frame.Source().String()
+			var dst = frame.Destination().String()
 			t.log.Debug.Printf("Got from teonet address %s:\n", addr)
-			t.log.Debug.Printf("Dst: %s\n", frame.Destination())
-			t.log.Debug.Printf("Src: %s\n", frame.Source())
+			t.log.Debug.Printf("Dst: %s\n", dst)
+			t.log.Debug.Printf("Src: %s\n", src)
 			t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
 			t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
 
 			// Save source mac address
-			t.macs.add(frame.Source().String(), addr)
+			t.macs.add(src, addr)
+
+			// Check destination
+			switch {
+			// Brodcast request
+			case dst == "ff:ff:ff:ff:ff:ff":
+				// send to all connected peers except this
+				t.peers.forEach(func(address string) {
+					if address != addr {
+						t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+					}
+				})
+				// does not return or break here, because we need to send this
+				// frame to the interface too
+
+			// Check if request send to other peer then resend frame to peer
+			default:
+				if address, ok := t.macs.get(dst); ok {
+					t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+					return true
+				}
+			}
 
 			// Send data to tunnel interface
 			// TODO: wait ifce ready
 			for t.ifce == nil {
 				time.Sleep(10 * time.Millisecond)
 			}
-			t.ifce.Write(cmd.Data)
+			t.ifce.Write([]byte(frame))
 		}
 
-		return false
+		return true
 	})
 
 	// Connect to remote peer and send connect command
