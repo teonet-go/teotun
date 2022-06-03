@@ -18,11 +18,12 @@ import (
 	"github.com/teonet-go/tru/teolog"
 )
 
-const Version = "0.0.3"
+const Version = "0.0.4"
 
 const (
-	cmdConnect = 11 // connect and connect_answer command
-	cmdData    = 12 // data command
+	cmdConnect       = 11 // connect and connect_answer command
+	cmdData          = 12 // data command
+	cmdDirectConnect = 13 // direct connect command: <addr>,<mac>
 )
 
 // Teotun is main package methods holder and data structure type
@@ -101,21 +102,28 @@ func (t *Teotun) ifcProcess() {
 			t.log.Error.Fatal(err)
 		}
 		frame = frame[:n]
-		dest := frame.Destination().String()
+		src := frame.Source().String()
+		dst := frame.Destination().String()
 		t.log.Debug.Println("Got from interface:")
-		t.log.Debug.Printf("Dst: %s\n", dest)
-		t.log.Debug.Printf("Src: %s\n", frame.Source())
+		t.log.Debug.Printf("Dst: %s\n", dst)
+		t.log.Debug.Printf("Src: %s\n", src)
 		t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
 		t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
 
 		// Resend frame to tunnels peer by teonet address found by mac address
-		if address, ok := t.macs.get(dest); ok {
+		if address, ok := t.macs.get(dst); ok {
+			saddr, _ := t.macs.get(src)
+			t.log.Debug.Printf(
+				"Resend (interface) from src: %s to dst: %s\n%s -> %s",
+				src, dst, saddr, address,
+			)
 			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
 			continue
 		}
 
 		// Resend frame to all connected tunnels peers
 		t.peers.forEach(func(address string) {
+			t.log.Debug.Printf("Resend (interface) to all, %s\n", address)
 			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
 		})
 	}
@@ -175,8 +183,9 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 
 	// Check Peer Connected event
 	case e.Event == teonet.EventConnected:
-		t.log.Connect.Printf("peer %s connected to tunnel (event connected)",
-			addr)
+		t.log.Connect.Printf(
+			"peer %s connected to tunnel (event connected)", addr,
+		)
 		// Send connect command
 		if clientMode {
 			t.teo.Command(cmdConnect, nil).SendTo(address)
@@ -194,13 +203,45 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 
 	// Connect command
 	case cmdConnect:
+		t.log.Connect.Printf("got cmd connect from peer %s\n", addr)
 		// Add peers address to connected peers
 		t.peers.add(addr)
-		t.log.Connect.Printf("got cmd connect from peer %s\n", addr)
 		// Send answer in server mode
 		if !clientMode {
 			cmd.Send(c)
 		}
+
+	// Direct connect to peer command
+	case cmdDirectConnect:
+		// Parse data
+		params := strings.Split(string(cmd.Data), ",")
+		if len(params) < 2 {
+			break
+		}
+		address := params[0]
+		mac := params[1]
+		t.log.Connect.Printf(
+			"got cmd direct connect from peer %s to %s\n", addr, address,
+		)
+
+		// Skip if already connected
+		if t.teo.Connected(address) {
+			t.log.Connect.Printf("skip direct connect, already connected\n")
+			// Set mac address
+			t.macs.add(mac, address)
+			break
+		}
+
+		// Connect to peer
+		go func() {
+			// Send connect command
+			t.teo.ConnectTo(address)
+			t.teo.ReconnectOff(address)
+			t.teo.Command(cmdConnect, nil).SendTo(address)
+
+			// Set mac address
+			t.macs.add(mac, address)
+		}()
 
 	// Get data command
 	case cmdData:
@@ -242,7 +283,17 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 		// Check if request send to other peer then resend frame to peer
 		default:
 			if address, ok := t.macs.get(dst); ok {
+				// Send frame
 				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+
+				// Send direct connect command
+				if srcaddr, ok := t.macs.get(src); ok {
+					data := address + "," + dst
+					t.teo.Command(cmdDirectConnect, data).SendTo(srcaddr)
+					t.teo.Log().Debug.Printf(
+						"Send direct connect to %s, data: %s\n", src, data,
+					)
+				}
 				return true
 			}
 		}
