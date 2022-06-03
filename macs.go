@@ -36,8 +36,8 @@ func (p *macaddr) del(mac string) {
 	delete(p.m, mac)
 }
 
-// deladdr delete mac by peer address
-func (p *macaddr) deladdr(address string) {
+// delByAddr delete mac by peer address
+func (p *macaddr) delByAddr(address string) {
 	p.Lock()
 	defer p.Unlock()
 	for mac, addr := range p.m {

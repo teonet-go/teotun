@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/songgao/packets/ethernet"
@@ -33,6 +34,7 @@ type Teotun struct {
 	ifce  *water.Interface
 	peers *peers
 	macs  *macaddr
+	dc    *sync.Mutex
 }
 
 // Create new Teonet tunnel, where:
@@ -48,6 +50,7 @@ func New(teo *teonet.Teonet, iface, connectto, postcon string) (t *Teotun, err e
 	t.log = teo.Log()
 	t.peers = t.newPeers()
 	t.macs = t.newMacaddr()
+	t.dc = new(sync.Mutex)
 
 	// Create tap interface
 	err = t.ifcCreate(iface)
@@ -161,150 +164,206 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 
 	var addr = c.Address()
 
-	// Check received teonet event
-	switch {
-
-	// Check Peer Disconnected event and remove it from peers in client mode
-	case e.Event == teonet.EventDisconnected:
-		if _, ok := t.peers.get(addr); !ok {
-			return false
-		}
-
-		t.log.Connect.Printf(
-			"peer %s disconnected from tunnel (event disconnected)",
-			addr,
-		)
-
-		// Remmove peer from peers and masc lists
-		t.peers.del(addr)
-		t.macs.deladdr(addr)
-
-		return false
-
-	// Check Peer Connected event
-	case e.Event == teonet.EventConnected:
-		t.log.Connect.Printf(
-			"peer %s connected to tunnel (event connected)", addr,
-		)
-		// Send connect command
-		if clientMode {
-			t.teo.Command(cmdConnect, nil).SendTo(address)
-		}
-		return false
-
-	// Skip non data events
-	case e.Event != teonet.EventData:
+	// Process teonet event
+	if !t.teoEvents(e.Event, addr, clientMode && addr == address) {
 		return false
 	}
 
-	// Parse incomming commands
+	// Process teonet commands
+	return t.teoCommands(p, c, addr, clientMode)
+}
+
+// teoEvents proccess Teonet Events, return true if it data event
+func (t *Teotun) teoEvents(event teonet.TeonetEventType, addr string, clientMode bool) bool {
+	switch event {
+
+	// Connected event
+	case teonet.EventConnected:
+		t.teoEventConnect(addr, clientMode)
+
+	// Disconnected event
+	case teonet.EventDisconnected:
+		t.teoEventDiconnect(addr)
+
+	// Data events
+	case event:
+		return true
+	}
+	return false
+}
+
+// teoEventConnect process Teonet Connected Event
+func (t *Teotun) teoEventConnect(addr string, clientMode bool) {
+	t.log.Connect.Printf(
+		"peer %s connected to tunnel (event connected)", addr,
+	)
+	// Send connect command to trutun server selected in app parameters when
+	// connected or reconnected to this server
+	if clientMode {
+		t.teo.Command(cmdConnect, nil).SendTo(addr)
+	}
+}
+
+// teoEventDiconnect process Teonet Diconnect Event
+func (t *Teotun) teoEventDiconnect(addr string) {
+	if _, ok := t.peers.get(addr); !ok {
+		return
+	}
+
+	t.log.Connect.Printf(
+		"peer %s disconnected from tunnel (event disconnected)",
+		addr,
+	)
+
+	// Remmove peer from peers and masc lists
+	t.peers.del(addr)
+	t.macs.delByAddr(addr)
+}
+
+// teoCommands proccess Teonet Commands
+func (t *Teotun) teoCommands(p *teonet.Packet, c *teonet.Channel, addr string, clientMode bool) bool {
 	cmd := t.teo.Command(p.Data())
 	switch cmd.Cmd {
 
 	// Connect command
 	case cmdConnect:
-		t.log.Connect.Printf("got cmd connect from peer %s\n", addr)
-		// Add peers address to connected peers
-		t.peers.add(addr)
-		// Send answer in server mode
-		if !clientMode {
-			cmd.Send(c)
-		}
+		t.teoCommandConnect(cmd, c)
 
 	// Direct connect to peer command
 	case cmdDirectConnect:
-		// Parse data
-		params := strings.Split(string(cmd.Data), ",")
-		if len(params) < 2 {
-			break
-		}
-		address := params[0]
-		mac := params[1]
-		t.log.Connect.Printf(
-			"got cmd direct connect from peer %s to %s\n", addr, address,
-		)
-
-		// Skip if already connected
-		if t.teo.Connected(address) {
-			t.log.Connect.Printf("skip direct connect, already connected\n")
-			// Set mac address
-			t.macs.add(mac, address)
-			break
-		}
-
-		// Connect to peer
-		go func() {
-			// Send connect command
-			t.teo.ConnectTo(address)
-			t.teo.ReconnectOff(address)
-			t.teo.Command(cmdConnect, nil).SendTo(address)
-
-			// Set mac address
-			t.macs.add(mac, address)
-		}()
+		t.teoCommandDirectConnect(cmd, addr)
 
 	// Get data command
 	case cmdData:
-		// Check connected
-		_, ok := t.peers.get(addr)
-		if !ok {
-			t.log.Error.Printf("receve data packet from unknown peer %s\n",
-				addr)
-			t.teo.CloseTo(addr)
-			break
-		}
+		return t.teoCommandGetData(cmd, addr)
 
-		// Show log
-		var frame ethernet.Frame = cmd.Data
-		var src = frame.Source().String()
-		var dst = frame.Destination().String()
-		t.log.Debug.Printf("Got from teonet address %s:\n", addr)
-		t.log.Debug.Printf("Dst: %s\n", dst)
-		t.log.Debug.Printf("Src: %s\n", src)
-		t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
-		t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
-
-		// Save source mac address
-		t.macs.add(src, addr)
-
-		// Check destination
-		switch {
-		// Brodcast request
-		case dst == "ff:ff:ff:ff:ff:ff":
-			// send to all connected peers except this
-			t.peers.forEach(func(address string) {
-				if address != addr {
-					t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-				}
-			})
-			// does not return or break here, because we need to send this
-			// frame to the interface too
-
-		// Check if request send to other peer then resend frame to peer
-		default:
-			if address, ok := t.macs.get(dst); ok {
-				// Send frame
-				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-
-				// Send direct connect command
-				if srcaddr, ok := t.macs.get(src); ok {
-					data := address + "," + dst
-					t.teo.Command(cmdDirectConnect, data).SendTo(srcaddr)
-					t.teo.Log().Debug.Printf(
-						"Send direct connect to %s, data: %s\n", src, data,
-					)
-				}
-				return true
-			}
-		}
-
-		// Send data to tunnel interface
-		// TODO: wait ifce ready
-		// for t.ifce == nil {
-		// 	time.Sleep(10 * time.Millisecond)
-		// }
-		t.ifce.Write([]byte(frame))
+	// Skip any other commands
+	default:
+		return false
 	}
+	return true
+}
+
+// teoCommandConnect process Connect Command
+func (t *Teotun) teoCommandConnect(cmd *teonet.Command, c *teonet.Channel) {
+	var addr = c.Address()
+	t.log.Connect.Printf("got cmd connect from peer %s\n", addr)
+	if _, ok := t.peers.get(addr); ok {
+		return
+	}
+	// Add peers address to connected peers
+	t.peers.add(addr)
+	// Send answer in server mode
+	// if !clientMode {
+	cmd.Send(c)
+	// }
+}
+
+// teoCommandDirectConnect process Direct Connect Command
+func (t *Teotun) teoCommandDirectConnect(cmd *teonet.Command, addr string) (err error) {
+
+	// Parse data
+	params := strings.Split(string(cmd.Data), ",")
+	if len(params) < 2 {
+		err = errors.New("worng data")
+		return
+	}
+	address := params[0]
+	mac := params[1]
+	t.log.Connect.Printf(
+		"got cmd direct connect from peer %s to %s\n", addr, address,
+	)
+
+	// Skip if already connected
+	if t.teo.Connected(address) {
+		t.log.Connect.Printf("skip direct connect, already connected\n")
+		// Set mac address
+		t.teo.Command(cmdConnect, nil).SendTo(address)
+		t.macs.add(mac, address)
+		err = errors.New("already connected")
+		return
+	}
+
+	// Connect to peer
+	go func() {
+		if !t.dc.TryLock() {
+			return
+		}
+		defer t.dc.Unlock()
+
+		// Send connect command
+		if err := t.teo.ConnectTo(address); err != nil {
+			return
+		}
+		t.teo.ReconnectOff(address)
+
+		// t.teo.Command(cmdConnect, nil).SendTo(address)
+		// t.macs.add(mac, address)
+	}()
+	return
+}
+
+// teoCommandGetData process Get Data Command
+func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
+	// Check connected
+	_, ok := t.peers.get(addr)
+	if !ok {
+		t.log.Error.Printf("receve data packet from unknown peer %s\n",
+			addr)
+		// t.teo.CloseTo(addr)
+		return false
+	}
+
+	// Show log
+	var frame ethernet.Frame = cmd.Data
+	var src = frame.Source().String()
+	var dst = frame.Destination().String()
+	t.log.Debug.Printf("Got from teonet address %s:\n", addr)
+	t.log.Debug.Printf("Dst: %s\n", dst)
+	t.log.Debug.Printf("Src: %s\n", src)
+	t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
+	t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
+
+	// Save source mac address
+	t.macs.add(src, addr)
+
+	// Check destination
+	switch {
+	// Brodcast request
+	case dst == "ff:ff:ff:ff:ff:ff":
+		// send to all connected peers except this
+		t.peers.forEach(func(address string) {
+			if address != addr {
+				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+			}
+		})
+		// does not return or break here, because we need to send this
+		// frame to the interface too
+
+	// Check if request send to other peer then resend frame to peer
+	default:
+		if address, ok := t.macs.get(dst); ok {
+			// Send frame
+			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+
+			// Send direct connect command
+			if srcaddr, ok := t.macs.get(src); ok {
+				data := address + "," + dst
+				t.teo.Command(cmdDirectConnect, data).SendTo(srcaddr)
+				t.teo.Log().Debug.Printf(
+					"Send direct connect to %s, data: %s\n", src, data,
+				)
+			}
+			return true
+		}
+	}
+
+	// Send data to tunnel interface
+	// TODO: wait ifce ready
+	// for t.ifce == nil {
+	// 	time.Sleep(10 * time.Millisecond)
+	// }
+	t.ifce.Write([]byte(frame))
 
 	return true
 }
