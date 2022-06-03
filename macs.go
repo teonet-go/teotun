@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Teotun is package. Mac address manage module.
+// Teotun package. Mac address manage module.
 
 package teotun
 
@@ -63,5 +63,3 @@ func (p *macaddr) forEach(f func(mac, address string)) {
 		f(mac, address)
 	}
 }
-
-

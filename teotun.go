@@ -34,6 +34,7 @@ type Teotun struct {
 	ifce  *water.Interface
 	peers *peers
 	macs  *macaddr
+	dcmap *directConnect
 	dc    *sync.Mutex
 }
 
@@ -50,6 +51,7 @@ func New(teo *teonet.Teonet, iface, connectto, postcon string) (t *Teotun, err e
 	t.log = teo.Log()
 	t.peers = t.newPeers()
 	t.macs = t.newMacaddr()
+	t.dcmap = t.newDirectConnect()
 	t.dc = new(sync.Mutex)
 
 	// Create tap interface
@@ -217,6 +219,9 @@ func (t *Teotun) teoEventDiconnect(addr string) {
 
 	// Remmove peer from peers and masc lists
 	t.peers.del(addr)
+	t.macs.forEach(func(mac, addr string) {
+		t.dcmap.del(mac)
+	})
 	t.macs.delByAddr(addr)
 }
 
@@ -342,13 +347,18 @@ func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
 
 	// Check if request send to other peer then resend frame to peer
 	default:
-		if address, ok := t.macs.get(dst); ok {
+		if srcress, ok := t.macs.get(dst); ok {
 			// Send frame
-			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+			t.teo.Command(cmdData, []byte(frame)).SendTo(srcress)
 
 			// Send direct connect command
+			_, ok := t.dcmap.get(src, dst)
+			if ok {
+				return true
+			}
 			if srcaddr, ok := t.macs.get(src); ok {
-				data := address + "," + dst
+				t.dcmap.add(src, dst)
+				data := srcress + "," + dst
 				t.teo.Command(cmdDirectConnect, data).SendTo(srcaddr)
 				t.teo.Log().Debug.Printf(
 					"Send direct connect to %s, data: %s\n", src, data,
