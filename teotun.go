@@ -258,10 +258,7 @@ func (t *Teotun) teoCommandConnect(cmd *teonet.Command, c *teonet.Channel) {
 	}
 	// Add peers address to connected peers
 	t.peers.add(addr)
-	// Send answer in server mode
-	// if !clientMode {
 	cmd.Send(c)
-	// }
 }
 
 // teoCommandDirectConnect process Direct Connect Command
@@ -269,22 +266,24 @@ func (t *Teotun) teoCommandDirectConnect(cmd *teonet.Command, addr string) (err 
 
 	// Parse data
 	params := strings.Split(string(cmd.Data), ",")
-	if len(params) < 2 {
+	if len(params) < 4 {
 		err = errors.New("worng data")
 		return
 	}
-	address := params[0]
-	mac := params[1]
+	dstaddr := params[0]
+	dstmac := params[1]
+	srcaddr := params[2]
+	srcmac := params[3]
 	t.log.Connect.Printf(
-		"got cmd direct connect from peer %s to %s\n", addr, address,
+		"got cmd direct connect from peer %s to %s\n", addr, dstaddr,
 	)
 
 	// Skip if already connected
-	if t.teo.Connected(address) {
+	if t.teo.Connected(dstaddr) {
 		t.log.Connect.Printf("skip direct connect, already connected\n")
 		// Set mac address
-		t.teo.Command(cmdConnect, nil).SendTo(address)
-		t.macs.add(mac, address)
+		// t.teo.Command(cmdConnect, nil).SendTo(dstaddr)
+		t.macs.add(dstmac, dstaddr)
 		err = errors.New("already connected")
 		return
 	}
@@ -296,14 +295,20 @@ func (t *Teotun) teoCommandDirectConnect(cmd *teonet.Command, addr string) (err 
 		}
 		defer t.dc.Unlock()
 
-		// Send connect command
-		if err := t.teo.ConnectTo(address); err != nil {
+		// Send connect command to dst peer
+		if err := t.teo.ConnectTo(dstaddr); err != nil {
 			return
 		}
-		t.teo.ReconnectOff(address)
+		t.teo.ReconnectOff(dstaddr)
+		t.teo.Command(cmdConnect, nil).SendTo(dstaddr)
+		t.macs.add(dstmac, dstaddr)
 
-		// t.teo.Command(cmdConnect, nil).SendTo(address)
-		// t.macs.add(mac, address)
+		// Send DirectConnect to dst peer
+		data := srcaddr + "," + srcmac + "," + dstaddr + "," + dstmac
+		t.teo.Command(cmdDirectConnect, data).SendTo(dstaddr)
+		t.teo.Log().Debug.Printf(
+			"send direct connect to %s, data: %s\n", dstaddr, data,
+		)
 	}()
 	return
 }
@@ -347,25 +352,33 @@ func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
 
 	// Check if request send to other peer then resend frame to peer
 	default:
-		if srcress, ok := t.macs.get(dst); ok {
-			// Send frame
-			t.teo.Command(cmdData, []byte(frame)).SendTo(srcress)
 
-			// Send direct connect command
-			_, ok := t.dcmap.get(src, dst)
-			if ok {
-				return true
-			}
-			if srcaddr, ok := t.macs.get(src); ok {
-				t.dcmap.add(src, dst)
-				data := srcress + "," + dst
-				t.teo.Command(cmdDirectConnect, data).SendTo(srcaddr)
-				t.teo.Log().Debug.Printf(
-					"Send direct connect to %s, data: %s\n", src, data,
-				)
-			}
+		// Exit from this switch if dst mac not found in macs map
+		dstaddr, ok := t.macs.get(dst)
+		if !ok {
+			break
+		}
+
+		// Send frame to peer
+		t.teo.Command(cmdData, []byte(frame)).SendTo(dstaddr)
+
+		// Skip if direct connect already sent
+		if _, ok := t.dcmap.get(src, dst); ok {
 			return true
 		}
+
+		// Send direct connect command to peer
+		if srcaddr, ok := t.macs.get(src); ok {
+			t.dcmap.add(src, dst)
+
+			// Send DirectConnect to src peer
+			data := dstaddr + "," + dst + "," + srcaddr + "," + src
+			t.teo.Command(cmdDirectConnect, data).SendTo(srcaddr)
+			t.teo.Log().Debug.Printf(
+				"send direct connect to %s, data: %s\n", src, data,
+			)
+		}
+		return true
 	}
 
 	// Send data to tunnel interface
