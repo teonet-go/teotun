@@ -436,4 +436,9 @@ func (t *Teotun) hotkeys() {
 		})
 		fmt.Print(st.StructToTable(a) + "\n\n")
 	})
+
+	// Show mac address table
+	hk.Add("a", "show teomet address", func(h *hotkey.Hotkey) {
+		fmt.Printf("\nteonet address: %s\n\n", t.teo.Address())
+	})
 }
