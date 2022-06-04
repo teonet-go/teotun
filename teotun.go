@@ -8,14 +8,17 @@ package teotun
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kirill-scherba/stable"
 	"github.com/songgao/packets/ethernet"
 	"github.com/songgao/water"
 	"github.com/teonet-go/teonet"
+	"github.com/teonet-go/tru/hotkey"
 	"github.com/teonet-go/tru/teolog"
 )
 
@@ -71,6 +74,9 @@ func New(teo *teonet.Teonet, iface, connectto, postcon string) (t *Teotun, err e
 
 	// Exec post connection commands
 	err = t.postConnect(postcon)
+
+	// Add to hotkey menu items
+	t.hotkeys()
 
 	return
 }
@@ -410,4 +416,24 @@ func (t *Teotun) postConnect(command string) (err error) {
 	out, err := exec.Command(com[0], arg...).Output()
 	t.log.Debug.Printf("\n%s\n", out)
 	return
+}
+
+// hotkeys adds items to teonet hokey menu
+func (t *Teotun) hotkeys() {
+	hk := t.teo.Hotkey()
+
+	// Show mac address table
+	hk.Add("m", "show mac address table", func(h *hotkey.Hotkey) {
+		fmt.Print("\nmac address table\n\n")
+		st := new(stable.Stable)
+		type table struct {
+			mac  string
+			addr string
+		}
+		var a []table
+		t.macs.forEach(func(mac, addr string) {
+			a = append(a, table{mac, addr})
+		})
+		fmt.Print(st.StructToTable(a) + "\n\n")
+	})
 }
