@@ -127,10 +127,12 @@ func (t *Teotun) ifcProcess() {
 		}
 
 		// Resend frame to all connected tunnels peers
-		t.peers.forEach(func(address string) {
-			t.log.Debug.Printf("Resend (interface) to all, %s\n", address)
-			t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-		})
+		if dst == "ff:ff:ff:ff:ff:ff" {
+			t.peers.forEach(func(address string) {
+				t.log.Debug.Printf("Resend (interface) to all, %s\n", address)
+				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+			})
+		}
 	}
 }
 
@@ -217,7 +219,7 @@ func (t *Teotun) teoEventDiconnect(addr string) {
 		addr,
 	)
 
-	// Remmove peer from peers and masc lists
+	// Remmove peer from peers and macs lists
 	t.peers.del(addr)
 	t.macs.forEach(func(mac, addr string) {
 		t.dcmap.del(mac)
@@ -278,24 +280,24 @@ func (t *Teotun) teoCommandDirectConnect(cmd *teonet.Command, addr string) (err 
 		"got cmd direct connect from peer %s to %s\n", addr, dstaddr,
 	)
 
-	// Skip if already connected
+	// return
+
+	// Add dsc mac for already connected peer
 	if t.teo.Connected(dstaddr) {
-		t.log.Connect.Printf("skip direct connect, already connected\n")
-		// Set mac address
-		// t.teo.Command(cmdConnect, nil).SendTo(dstaddr)
+		t.log.Connect.Printf("add mac address for already connected\n")
 		t.macs.add(dstmac, dstaddr)
-		err = errors.New("already connected")
 		return
 	}
 
 	// Connect to peer
 	go func() {
+		// Execute only one concurent connection in one time
 		if !t.dc.TryLock() {
 			return
 		}
 		defer t.dc.Unlock()
 
-		// Send connect command to dst peer
+		// Connect to dst peer
 		if err := t.teo.ConnectTo(dstaddr); err != nil {
 			return
 		}
@@ -303,12 +305,13 @@ func (t *Teotun) teoCommandDirectConnect(cmd *teonet.Command, addr string) (err 
 		t.teo.Command(cmdConnect, nil).SendTo(dstaddr)
 		t.macs.add(dstmac, dstaddr)
 
-		// Send DirectConnect to dst peer
+		// Send DirectConnect to dst peer to execute macs.add in dst side
 		data := srcaddr + "," + srcmac + "," + dstaddr + "," + dstmac
 		t.teo.Command(cmdDirectConnect, data).SendTo(dstaddr)
 		t.teo.Log().Debug.Printf(
 			"send direct connect to %s, data: %s\n", dstaddr, data,
 		)
+		time.Sleep(2 * time.Second)
 	}()
 	return
 }
@@ -335,7 +338,9 @@ func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
 	t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
 
 	// Save source mac address
-	t.macs.add(src, addr)
+	if _, ok := t.macs.get(src); !ok {
+		t.macs.add(src, addr)
+	}
 
 	// Check destination
 	switch {
