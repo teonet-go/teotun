@@ -121,7 +121,7 @@ func (t *Teotun) ifcProcess() {
 		t.log.Debug.Printf("Ethertype: % x\n", frame.Ethertype())
 		t.log.Debug.Printf("Payload len: %d\n", len(frame.Payload()))
 
-		// Resend frame to tunnels peer by teonet address found by mac address
+		// Resend frame to tunnels teonet peer found by mac address
 		if address, ok := t.macs.get(dst); ok {
 			saddr, _ := t.macs.get(src)
 			t.log.Debug.Printf(
@@ -132,7 +132,7 @@ func (t *Teotun) ifcProcess() {
 			continue
 		}
 
-		// Resend frame to all connected tunnels peers
+		// Resend frame to all connected tunnels teonet peers
 		if dst == "ff:ff:ff:ff:ff:ff" {
 			t.peers.forEach(func(address string) {
 				t.log.Debug.Printf("Resend (interface) to all, %s\n", address)
@@ -248,7 +248,7 @@ func (t *Teotun) teoCommands(p *teonet.Packet, c *teonet.Channel, addr string, c
 
 	// Get data command
 	case cmdData:
-		return t.teoCommandGetData(cmd, addr)
+		return t.teoCommandGetData(cmd, addr, !clientMode)
 
 	// Skip any other commands
 	default:
@@ -317,13 +317,13 @@ func (t *Teotun) teoCommandDirectConnect(cmd *teonet.Command, addr string) (err 
 		t.teo.Log().Debug.Printf(
 			"send direct connect to %s, data: %s\n", dstaddr, data,
 		)
-		time.Sleep(2 * time.Second)
+		// time.Sleep(2 * time.Second)
 	}()
 	return
 }
 
 // teoCommandGetData process Get Data Command
-func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
+func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string, serverMode bool) bool {
 	// Check connected
 	_, ok := t.peers.get(addr)
 	if !ok {
@@ -348,30 +348,11 @@ func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
 		t.macs.add(src, addr)
 	}
 
-	// Check destination
-	switch {
-	// Brodcast request
-	case dst == "ff:ff:ff:ff:ff:ff":
-		// send to all connected peers except this
-		t.peers.forEach(func(address string) {
-			if address != addr {
-				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
-			}
-		})
-		// does not return or break here, because we need to send this
-		// frame to the interface too
-
-	// Check if request send to other peer then resend frame to peer
-	default:
-
-		// Exit from this switch if dst mac not found in macs map
-		dstaddr, ok := t.macs.get(dst)
-		if !ok {
-			break
-		}
+	// Resend frame to other peer if request has remote destination
+	if dstaddr, ok := t.macs.get(dst); serverMode && ok {
 
 		// Send frame to peer
-		t.teo.Command(cmdData, []byte(frame)).SendTo(dstaddr)
+		// t.teo.Command(cmdData, []byte(frame)).SendTo(dstaddr)
 
 		// Skip if direct connect already sent
 		if _, ok := t.dcmap.get(src, dst); ok {
@@ -392,11 +373,18 @@ func (t *Teotun) teoCommandGetData(cmd *teonet.Command, addr string) bool {
 		return true
 	}
 
+	// Send broadcast frame to all connected peers except this
+	if serverMode && dst == "ff:ff:ff:ff:ff:ff" {
+		t.peers.forEach(func(address string) {
+			if address != addr {
+				t.teo.Command(cmdData, []byte(frame)).SendTo(address)
+			}
+		})
+		// does not return here, because we need to send this frame to the
+		// interface too
+	}
+
 	// Send data to tunnel interface
-	// TODO: wait ifce ready
-	// for t.ifce == nil {
-	// 	time.Sleep(10 * time.Millisecond)
-	// }
 	t.ifce.Write([]byte(frame))
 
 	return true
