@@ -22,7 +22,7 @@ import (
 	"github.com/teonet-go/tru/teolog"
 )
 
-const Version = "0.0.4"
+const Version = "0.0.5"
 
 const (
 	cmdConnect       = 11 // connect and connect_answer command
@@ -183,7 +183,7 @@ func (t *Teotun) teoProcess(clientMode bool, address string,
 	return t.teoCommands(p, c, addr, clientMode)
 }
 
-// teoEvents proccess Teonet Events, return true if it data event
+// teoEvents process Teonet Events, return true if it data event
 func (t *Teotun) teoEvents(event teonet.TeonetEventType, addr string, clientMode bool) bool {
 	switch event {
 
@@ -233,7 +233,7 @@ func (t *Teotun) teoEventDiconnect(addr string) {
 	t.macs.delByAddr(addr)
 }
 
-// teoCommands proccess Teonet Commands
+// teoCommands process Teonet Commands
 func (t *Teotun) teoCommands(p *teonet.Packet, c *teonet.Channel, addr string, clientMode bool) bool {
 	cmd := t.teo.Command(p.Data())
 	switch cmd.Cmd {
