@@ -60,9 +60,6 @@ ping 10.1.2.2
 
 All host in teotun network connect P2P so you will see lowest ping between [Host B](#start-teotun-in-host-b) and [Host A](#start-teotun-in-host-a).
 
-## How it works
-
-_This article is Under construction yet..._
 
 ## License
 
