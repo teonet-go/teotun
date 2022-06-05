@@ -32,7 +32,7 @@ Copy teonet address which prints after Main teotun started:
 Teonet address: MIxxCM5mxilJ9Oa4zvQJbkSBp7mB4xuyZMM
 ```
 
-Use this address in -connectto parameter in [Host A](start-teotun-in-host-a) and [Host B](start-teotun-in-host-b)
+Use this address in -connectto parameter in [Host A](#start-teotun-in-host-a) and [Host B](#start-teotun-in-host-b)
 
 ### Start teotun in Host A
 
@@ -50,15 +50,15 @@ TUN=teotun1 && sudo go run ./cmd/teotun/ -name=$TUN -connectto=MIxxCM5mxilJ9Oa4z
 
 When teotun will be started on all hosts, you can use any network commands between this hosts by its local IPs 10.1.2.1, 10.1.2.2, 10.1.2.3.
 
-For example, you can ping [Host B](start-teotun-in-host-b) from [Host A](start-teotun-in-host-a).
+For example, you can ping [Host B](#start-teotun-in-host-b) from [Host A](#start-teotun-in-host-a).
 
-Login to [Host B](start-teotun-in-host-b) and execute command:
+Login to [Host B](#start-teotun-in-host-b) and execute command:
 
 ```shell
 ping 10.1.2.2
 ```
 
-All host in teotun network connect P2P so you will see lowest ping between [Host B](start-teotun-in-host-b) and [Host A](start-teotun-in-host-a).
+All host in teotun network connect P2P so you will see lowest ping between [Host B](#start-teotun-in-host-b) and [Host A](#start-teotun-in-host-a).
 
 ## How it works
 
