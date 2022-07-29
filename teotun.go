@@ -22,7 +22,7 @@ import (
 	"github.com/teonet-go/tru/teolog"
 )
 
-const Version = "0.0.5"
+const Version = "0.0.6"
 
 const (
 	cmdConnect       = 11 // connect and connect_answer command
@@ -196,7 +196,7 @@ func (t *Teotun) teoEvents(event teonet.TeonetEventType, addr string, clientMode
 		t.teoEventDiconnect(addr)
 
 	// Data events
-	case event:
+	case teonet.EventData:
 		return true
 	}
 	return false
